@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>WoT Blitz Player/Tank Lookup</title>
+</head>
+<body>
+
+<h2>WoT Blitz Player Lookup</h2>
+
+<label>Application ID: <input type="text" id="appId"></label><br><br>
+<label>Search Player: <input type="text" id="searchInput"></label>
+<button onclick="searchPlayers()">Search</button>
+
+<h3>Results:</h3>
+<ul id="playerResults"></ul>
+
+<h3 id="tankHeader" style="display:none;">Tanks:</h3>
+<ul id="tankResults"></ul>
+
+<script>
+// Change this if your account region differs (com = NA, eu = Europe, asia = Asia)
+const API_BASE = "https://api.wotblitz.com/wotb";
+
+async function searchPlayers() {
+  const appId = document.getElementById("appId").value.trim();
+  const search = document.getElementById("searchInput").value.trim();
+  const resultsList = document.getElementById("playerResults");
+  resultsList.innerHTML = "";
+  document.getElementById("tankResults").innerHTML = "";
+  document.getElementById("tankHeader").style.display = "none";
+
+  if (!appId || !search) {
+    alert("Please enter both an Application ID and a search term.");
+    return;
+  }
+
+  const url = `${API_BASE}/account/list/?application_id=${appId}&search=${encodeURIComponent(search)}`;
+
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status !== "ok") {
+      resultsList.innerHTML = `<li>Error: ${data.error ? data.error.message : "Unknown error"}</li>`;
+      return;
+    }
+
+    if (!data.data || data.data.length === 0) {
+      resultsList.innerHTML = "<li>No players found.</li>";
+      return;
+    }
+
+    data.data.forEach(player => {
+      const li = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = "#";
+      link.textContent = player.nickname;
+      link.onclick = (e) => {
+        e.preventDefault();
+        getPlayerTanks(appId, player.account_id, player.nickname);
+      };
+      li.appendChild(link);
+      resultsList.appendChild(li);
+    });
+
+  } catch (err) {
+    resultsList.innerHTML = `<li>Request failed: ${err}</li>`;
+  }
+}
+
+async function getPlayerTanks(appId, accountId, nickname) {
+  const tankHeader = document.getElementById("tankHeader");
+  const tankList = document.getElementById("tankResults");
+  tankList.innerHTML = "<li>Loading...</li>";
+  tankHeader.style.display = "block";
+  tankHeader.textContent = `Tanks for ${nickname}:`;
+
+  const statsUrl = `${API_BASE}/tanks/stats/?application_id=${appId}&account_id=${accountId}`;
+
+  try {
+    const statsResponse = await fetch(statsUrl);
+    const statsData = await statsResponse.json();
+
+    if (statsData.status !== "ok") {
+      tankList.innerHTML = `<li>Error: ${statsData.error ? statsData.error.message : "Unknown error"}</li>`;
+      return;
+    }
+
+    const tankStats = statsData.data[accountId];
+    if (!tankStats || tankStats.length === 0) {
+      tankList.innerHTML = "<li>No tanks found for this player.</li>";
+      return;
+    }
+
+    const tankIds = tankStats.map(t => t.tank_id).join(",");
+
+    const encyUrl = `${API_BASE}/encyclopedia/tanks/?application_id=${appId}&tank_id=${tankIds}&fields=name,tier`;
+    const encyResponse = await fetch(encyUrl);
+    const encyData = await encyResponse.json();
+
+    if (encyData.status !== "ok") {
+      tankList.innerHTML = `<li>Error: ${encyData.error ? encyData.error.message : "Unknown error"}</li>`;
+      return;
+    }
+
+    tankList.innerHTML = "";
+    tankStats.forEach(t => {
+      const tankInfo = encyData.data[t.tank_id];
+      const name = tankInfo ? tankInfo.name : `Unknown (ID ${t.tank_id})`;
+      const tier = tankInfo ? tankInfo.tier : "?";
+      const li = document.createElement("li");
+      li.textContent = `${name} - Tier ${tier}`;
+      tankList.appendChild(li);
+    });
+
+  } catch (err) {
+    tankList.innerHTML = `<li>Request failed: ${err}</li>`;
+  }
+}
+</script>
+
+</body>
+</html>
