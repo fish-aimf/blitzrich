@@ -27,7 +27,7 @@
 
 <script>
 function getApiBase() {
-  const server = document.getElementById("server").value;
+  const server = document.getElementById("server").value; // com, eu, or asia
   return `https://api.wotblitz.${server}/wotb`;
 }
 
@@ -104,20 +104,32 @@ async function getPlayerTanks(appId, accountId, nickname) {
       return;
     }
 
-    const tankIds = tankStats.map(t => t.tank_id).join(",");
+    // The API rejects requests with too many tank_id values at once,
+    // so we split the full list into chunks and fetch each separately.
+    const CHUNK_SIZE = 100;
+    const allTankIds = tankStats.map(t => t.tank_id);
+    const chunks = [];
+    for (let i = 0; i < allTankIds.length; i += CHUNK_SIZE) {
+      chunks.push(allTankIds.slice(i, i + CHUNK_SIZE));
+    }
 
-    const encyUrl = `${API_BASE}/encyclopedia/vehicles/?application_id=${appId}&tank_id=${tankIds}&fields=name,tier`;
-    const encyResponse = await fetch(encyUrl);
-    const encyData = await encyResponse.json();
+    const encyData = {};
+    for (const chunk of chunks) {
+      const encyUrl = `${API_BASE}/encyclopedia/vehicles/?application_id=${appId}&tank_id=${chunk.join(",")}&fields=name,tier`;
+      const encyResponse = await fetch(encyUrl);
+      const chunkData = await encyResponse.json();
 
-    if (encyData.status !== "ok") {
-      tankList.innerHTML = `<li>Error: ${encyData.error ? encyData.error.message : "Unknown error"}</li>`;
-      return;
+      if (chunkData.status !== "ok") {
+        tankList.innerHTML = `<li>Error: ${chunkData.error ? chunkData.error.message : "Unknown error"}</li>`;
+        return;
+      }
+
+      Object.assign(encyData, chunkData.data);
     }
 
     tankList.innerHTML = "";
     tankStats.forEach(t => {
-      const tankInfo = encyData.data[t.tank_id];
+      const tankInfo = encyData[t.tank_id];
       const name = tankInfo ? tankInfo.name : `Unknown (ID ${t.tank_id})`;
       const tier = tankInfo ? tankInfo.tier : "?";
       const li = document.createElement("li");
