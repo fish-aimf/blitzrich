@@ -24,10 +24,25 @@
 
 <h3 id="tankHeader" style="display:none;">Tanks:</h3>
 <p id="totalsSummary"></p>
+<p id="assumptionDisclaimer" style="font-size:0.9em;color:#555;">
+  Gold values are NOT pulled from the API. They're flat assumptions based on tier:
+  Tier 10 premium = 7500, Tier 9 = 5000, Tier 8 = 3750, Tier 7 = 2500 gold.
+  No public per-tank gold-price database exists for WoTB, so uncheck any tank below
+  that you know is actually a Collector (sells differently) or otherwise shouldn't count.
+</p>
 <p id="exclusionDisclaimer" style="font-size:0.9em;color:#555;"></p>
 <ul id="tankResults"></ul>
 
 <script>
+// Flat gold-sell assumptions by tier, applied only to tanks flagged is_premium
+// by the encyclopedia. No real price data is used anywhere in this file.
+const ASSUMED_GOLD_BY_TIER = {
+  10: 7500,
+  9: 5000,
+  8: 3750,
+  7: 2500
+};
+
 function getApiBase() {
   const server = document.getElementById("server").value; // com, eu, or asia
   return `https://api.wotblitz.${server}/wotb`;
@@ -83,6 +98,19 @@ async function searchPlayers() {
   }
 }
 
+// Recomputes the gold total from whichever checkboxes are currently checked.
+function recalcGoldTotal() {
+  const checkboxes = document.querySelectorAll(".gold-checkbox");
+  let total = 0;
+  checkboxes.forEach(cb => {
+    if (cb.checked) {
+      total += Number(cb.dataset.price);
+    }
+  });
+  document.getElementById("totalsSummary").textContent =
+    `Est. gold if all checked tanks sold: ${Math.round(total).toLocaleString()} (assumed tier-based prices, not from API)`;
+}
+
 async function getPlayerTanks(appId, accountId, nickname) {
   const API_BASE = getApiBase();
   const tankHeader = document.getElementById("tankHeader");
@@ -119,10 +147,9 @@ async function getPlayerTanks(appId, accountId, nickname) {
 
     const encyData = {};
     for (const chunk of chunks) {
-      // No "fields" param here - we didn't have a live API key to confirm
-      // exact field names for wotb, and specifying wrong ones causes
-      // INVALID_FIELDS. Fetching the full default object is safer, and we
-      // pull out whatever price/premium keys actually exist below.
+      // We still call the encyclopedia endpoint for name/tier/is_premium -
+      // that part of the API is fine. We just never read cost/price fields
+      // from it anymore (see ignorePriceApi note below).
       const encyUrl = `${API_BASE}/encyclopedia/vehicles/?application_id=${appId}&tank_id=${chunk.join(",")}`;
       const encyResponse = await fetch(encyUrl);
       const chunkData = await encyResponse.json();
@@ -135,14 +162,8 @@ async function getPlayerTanks(appId, accountId, nickname) {
       Object.assign(encyData, chunkData.data);
     }
 
-    // Debug aid: open browser dev tools (F12) -> Console to inspect the
-    // full vehicle object if anything ever looks wrong again.
-    console.log("Sample vehicle data from encyclopedia:", Object.values(encyData)[0]);
-
     tankList.innerHTML = "";
     let shown = 0;
-    let totalSellGold = 0;
-    let totalSellCredit = 0;
     const excluded = [];
 
     tankStats.forEach(t => {
@@ -150,8 +171,7 @@ async function getPlayerTanks(appId, accountId, nickname) {
 
       if (!tankInfo) {
         // Special/event/Rating Battle-exclusive vehicles aren't in
-        // Wargaming's public encyclopedia, so we have no name, tier, or
-        // price data for them - they can't be counted in the totals.
+        // Wargaming's public encyclopedia, so we have no name/tier for them.
         excluded.push(`tank_id ${t.tank_id} (no public data)`);
         const li = document.createElement("li");
         li.textContent = `Special/event vehicle (tank_id ${t.tank_id}) - no public data available`;
@@ -160,42 +180,50 @@ async function getPlayerTanks(appId, accountId, nickname) {
         return;
       }
 
-      // Confirmed real field locations: price data lives inside a nested
-      // "cost" object, not top-level.
       const isPremium = !!tankInfo.is_premium;
-      const priceGold = (tankInfo.cost && tankInfo.cost.price_gold) || 0;
-      const priceCredit = (tankInfo.cost && tankInfo.cost.price_credit) || 0;
+      const tier = tankInfo.tier;
 
-      // Heuristic: Collector tanks are non-tech-tree vehicles bought with
-      // credits only (no gold price). This is inferred, not an official flag.
-      const isCollector = isPremium && priceCredit > 0 && !priceGold;
-
-      // Selling any tank refunds 50% of its purchase price, in whichever
-      // currency it was bought with (per Wargaming's Update 10.8 policy).
-      // A tank with a gold price sells for gold; otherwise it sells for
-      // credits. We don't double count both currencies for the same tank.
-      if (priceGold > 0) {
-        totalSellGold += priceGold * 0.5;
-      } else if (priceCredit > 0) {
-        totalSellCredit += priceCredit * 0.5;
-      } else {
-        excluded.push(`${tankInfo.name} (no price data)`);
-      }
+      // Price API is ignored completely - no cost/price_gold/price_credit
+      // fields are read from tankInfo anywhere in this function.
+      const assumedPrice = (isPremium && ASSUMED_GOLD_BY_TIER[tier]) || null;
 
       const li = document.createElement("li");
-      li.textContent = `${tankInfo.name} - Tier ${tankInfo.tier}${isCollector ? " (Collector)" : ""}`;
+
+      if (assumedPrice !== null) {
+        // This tank contributes to the gold total - give it a checkbox.
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "gold-checkbox";
+        checkbox.checked = true;
+        checkbox.dataset.price = assumedPrice;
+        checkbox.dataset.tankId = t.tank_id;
+        checkbox.addEventListener("change", recalcGoldTotal);
+
+        const label = document.createElement("label");
+        label.style.marginLeft = "6px";
+        label.textContent = `${tankInfo.name} - Tier ${tier} (Premium, assumed ${assumedPrice.toLocaleString()} gold)`;
+
+        li.appendChild(checkbox);
+        li.appendChild(label);
+      } else {
+        // Not premium, or premium below tier 7 - no assumed value, so it
+        // doesn't get a checkbox and never contributes to the total.
+        li.textContent = `${tankInfo.name} - Tier ${tier}${isPremium ? " (Premium, no assumed value)" : ""}`;
+        if (isPremium) {
+          excluded.push(`${tankInfo.name} (premium below tier 7, no assumed value)`);
+        }
+      }
+
       tankList.appendChild(li);
       shown++;
     });
 
     tankHeader.textContent = `Tanks for ${nickname}: (showing ${shown} of ${tankStats.length} owned)`;
 
-    document.getElementById("totalsSummary").textContent =
-      `Est. gold if all sold: ${Math.round(totalSellGold).toLocaleString()} | ` +
-      `Est. credits if all sold: ${Math.round(totalSellCredit).toLocaleString()}`;
+    recalcGoldTotal();
 
     document.getElementById("exclusionDisclaimer").textContent = excluded.length
-      ? `Disclaimer: ${excluded.length} tank(s) excluded from these totals due to missing data - ${excluded.join(", ")}`
+      ? `Disclaimer: ${excluded.length} tank(s) excluded from the checkbox total - ${excluded.join(", ")}`
       : "";
 
   } catch (err) {
