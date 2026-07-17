@@ -9,6 +9,13 @@
 <h2>WoT Blitz Player Lookup</h2>
 
 <label>Application ID: <input type="text" id="appId"></label><br><br>
+<label>Server:
+  <select id="server">
+    <option value="com">NA (com)</option>
+    <option value="eu">EU</option>
+    <option value="asia">Asia</option>
+  </select>
+</label><br><br>
 <label>Search Player: <input type="text" id="searchInput"></label>
 <button onclick="searchPlayers()">Search</button>
 
@@ -19,10 +26,13 @@
 <ul id="tankResults"></ul>
 
 <script>
-// Change this if your account region differs (com = NA, eu = Europe, asia = Asia)
-const API_BASE = "https://api.wotblitz.com/wotb";
+function getApiBase() {
+  const server = document.getElementById("server").value;
+  return `https://api.wotblitz.${server}/wotb`;
+}
 
 async function searchPlayers() {
+  const API_BASE = getApiBase();
   const appId = document.getElementById("appId").value.trim();
   const search = document.getElementById("searchInput").value.trim();
   const resultsList = document.getElementById("playerResults");
@@ -70,6 +80,7 @@ async function searchPlayers() {
 }
 
 async function getPlayerTanks(appId, accountId, nickname) {
+  const API_BASE = getApiBase();
   const tankHeader = document.getElementById("tankHeader");
   const tankList = document.getElementById("tankResults");
   tankList.innerHTML = "<li>Loading...</li>";
@@ -95,7 +106,7 @@ async function getPlayerTanks(appId, accountId, nickname) {
 
     const tankIds = tankStats.map(t => t.tank_id).join(",");
 
-    const encyUrl = `${API_BASE}/encyclopedia/tanks/?application_id=${appId}&tank_id=${tankIds}&fields=name,tier`;
+    const encyUrl = `${API_BASE}/encyclopedia/vehicles/?application_id=${appId}&tank_id=${tankIds}&fields=name,tier`;
     const encyResponse = await fetch(encyUrl);
     const encyData = await encyResponse.json();
 
