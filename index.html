@@ -135,10 +135,29 @@ async function getPlayerTanks(appId, accountId, nickname) {
       Object.assign(encyData, chunkData.data);
     }
 
-    // Debug aid: open browser dev tools (F12) -> Console to see the exact
-    // field names Wargaming actually returns, in case price/premium
-    // detection below ever looks wrong for a given tank.
+    // Debug aid: open browser dev tools (F12) -> Console and expand this
+    // object (or right-click -> Store as global variable) to see every
+    // field Wargaming actually returns for a vehicle.
     console.log("Sample vehicle data from encyclopedia:", Object.values(encyData)[0]);
+    console.log("Its top-level keys:", Object.keys(Object.values(encyData)[0] || {}));
+
+    // We don't have a live API key to confirm exact field names, and a
+    // couple of guesses (price_gold, price_credit, is_premium) turned out
+    // wrong - the gold total came back 0 for everyone. Instead of guessing
+    // a third time, scan each vehicle object for whatever key actually
+    // contains "gold" / "credit" / "premium" in its name.
+    function findNumericField(obj, pattern) {
+      for (const [k, v] of Object.entries(obj)) {
+        if (pattern.test(k) && typeof v === "number") return v;
+      }
+      return 0;
+    }
+    function findBooleanField(obj, pattern) {
+      for (const [k, v] of Object.entries(obj)) {
+        if (pattern.test(k) && typeof v === "boolean") return v;
+      }
+      return false;
+    }
 
     const collectorOnly = document.getElementById("collectorOnly").checked;
 
@@ -159,9 +178,9 @@ async function getPlayerTanks(appId, accountId, nickname) {
         return;
       }
 
-      const isPremium = !!tankInfo.is_premium;
-      const priceGold = tankInfo.price_gold || 0;
-      const priceCredit = tankInfo.price_credit || 0;
+      const isPremium = findBooleanField(tankInfo, /premium/i);
+      const priceGold = findNumericField(tankInfo, /gold/i);
+      const priceCredit = findNumericField(tankInfo, /credit/i);
 
       // Heuristic: Collector tanks are non-tech-tree vehicles bought with
       // credits only (no gold price). This is inferred, not an official flag.
