@@ -135,29 +135,9 @@ async function getPlayerTanks(appId, accountId, nickname) {
       Object.assign(encyData, chunkData.data);
     }
 
-    // Debug aid: open browser dev tools (F12) -> Console and expand this
-    // object (or right-click -> Store as global variable) to see every
-    // field Wargaming actually returns for a vehicle.
+    // Debug aid: open browser dev tools (F12) -> Console to inspect the
+    // full vehicle object if anything ever looks wrong again.
     console.log("Sample vehicle data from encyclopedia:", Object.values(encyData)[0]);
-    console.log("Its top-level keys:", Object.keys(Object.values(encyData)[0] || {}));
-
-    // We don't have a live API key to confirm exact field names, and a
-    // couple of guesses (price_gold, price_credit, is_premium) turned out
-    // wrong - the gold total came back 0 for everyone. Instead of guessing
-    // a third time, scan each vehicle object for whatever key actually
-    // contains "gold" / "credit" / "premium" in its name.
-    function findNumericField(obj, pattern) {
-      for (const [k, v] of Object.entries(obj)) {
-        if (pattern.test(k) && typeof v === "number") return v;
-      }
-      return 0;
-    }
-    function findBooleanField(obj, pattern) {
-      for (const [k, v] of Object.entries(obj)) {
-        if (pattern.test(k) && typeof v === "boolean") return v;
-      }
-      return false;
-    }
 
     const collectorOnly = document.getElementById("collectorOnly").checked;
 
@@ -178,9 +158,11 @@ async function getPlayerTanks(appId, accountId, nickname) {
         return;
       }
 
-      const isPremium = findBooleanField(tankInfo, /premium/i);
-      const priceGold = findNumericField(tankInfo, /gold/i);
-      const priceCredit = findNumericField(tankInfo, /credit/i);
+      // Confirmed real field locations: price data lives inside a nested
+      // "cost" object, not top-level.
+      const isPremium = !!tankInfo.is_premium;
+      const priceGold = (tankInfo.cost && tankInfo.cost.price_gold) || 0;
+      const priceCredit = (tankInfo.cost && tankInfo.cost.price_credit) || 0;
 
       // Heuristic: Collector tanks are non-tech-tree vehicles bought with
       // credits only (no gold price). This is inferred, not an official flag.
