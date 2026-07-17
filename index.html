@@ -17,16 +17,14 @@
   </select>
 </label><br><br>
 <label>Search Player: <input type="text" id="searchInput"></label>
-<button onclick="searchPlayers()">Search</button><br><br>
-<label>
-  <input type="checkbox" id="collectorOnly">
-  Show only Collector tanks (bought with credits, not gold/bonds)
-</label>
+<button onclick="searchPlayers()">Search</button>
 
 <h3>Results:</h3>
 <ul id="playerResults"></ul>
 
 <h3 id="tankHeader" style="display:none;">Tanks:</h3>
+<p id="totalsSummary"></p>
+<p id="exclusionDisclaimer" style="font-size:0.9em;color:#555;"></p>
 <ul id="tankResults"></ul>
 
 <script>
@@ -43,6 +41,8 @@ async function searchPlayers() {
   resultsList.innerHTML = "";
   document.getElementById("tankResults").innerHTML = "";
   document.getElementById("tankHeader").style.display = "none";
+  document.getElementById("totalsSummary").textContent = "";
+  document.getElementById("exclusionDisclaimer").textContent = "";
 
   if (!appId || !search) {
     alert("Please enter both an Application ID and a search term.");
@@ -139,22 +139,24 @@ async function getPlayerTanks(appId, accountId, nickname) {
     // full vehicle object if anything ever looks wrong again.
     console.log("Sample vehicle data from encyclopedia:", Object.values(encyData)[0]);
 
-    const collectorOnly = document.getElementById("collectorOnly").checked;
-
     tankList.innerHTML = "";
     let shown = 0;
     let totalSellGold = 0;
+    let totalSellCredit = 0;
+    const excluded = [];
 
     tankStats.forEach(t => {
       const tankInfo = encyData[t.tank_id];
 
       if (!tankInfo) {
-        if (!collectorOnly) {
-          const li = document.createElement("li");
-          li.textContent = `Special/event vehicle (tank_id ${t.tank_id}) - no public data available`;
-          tankList.appendChild(li);
-          shown++;
-        }
+        // Special/event/Rating Battle-exclusive vehicles aren't in
+        // Wargaming's public encyclopedia, so we have no name, tier, or
+        // price data for them - they can't be counted in the totals.
+        excluded.push(`tank_id ${t.tank_id} (no public data)`);
+        const li = document.createElement("li");
+        li.textContent = `Special/event vehicle (tank_id ${t.tank_id}) - no public data available`;
+        tankList.appendChild(li);
+        shown++;
         return;
       }
 
@@ -168,14 +170,17 @@ async function getPlayerTanks(appId, accountId, nickname) {
       // credits only (no gold price). This is inferred, not an official flag.
       const isCollector = isPremium && priceCredit > 0 && !priceGold;
 
-      // Selling a Premium or Collector tank refunds 50% of its gold price
-      // (per Wargaming's Update 10.8 restoration policy). Tech tree tanks
-      // sell for credits, not gold, so they don't add to this total.
+      // Selling any tank refunds 50% of its purchase price, in whichever
+      // currency it was bought with (per Wargaming's Update 10.8 policy).
+      // A tank with a gold price sells for gold; otherwise it sells for
+      // credits. We don't double count both currencies for the same tank.
       if (priceGold > 0) {
         totalSellGold += priceGold * 0.5;
+      } else if (priceCredit > 0) {
+        totalSellCredit += priceCredit * 0.5;
+      } else {
+        excluded.push(`${tankInfo.name} (no price data)`);
       }
-
-      if (collectorOnly && !isCollector) return;
 
       const li = document.createElement("li");
       li.textContent = `${tankInfo.name} - Tier ${tankInfo.tier}${isCollector ? " (Collector)" : ""}`;
@@ -183,7 +188,15 @@ async function getPlayerTanks(appId, accountId, nickname) {
       shown++;
     });
 
-    tankHeader.textContent = `Tanks for ${nickname}: (showing ${shown} of ${tankStats.length} owned) - Est. gold if all sold: ${Math.round(totalSellGold).toLocaleString()}`;
+    tankHeader.textContent = `Tanks for ${nickname}: (showing ${shown} of ${tankStats.length} owned)`;
+
+    document.getElementById("totalsSummary").textContent =
+      `Est. gold if all sold: ${Math.round(totalSellGold).toLocaleString()} | ` +
+      `Est. credits if all sold: ${Math.round(totalSellCredit).toLocaleString()}`;
+
+    document.getElementById("exclusionDisclaimer").textContent = excluded.length
+      ? `Disclaimer: ${excluded.length} tank(s) excluded from these totals due to missing data - ${excluded.join(", ")}`
+      : "";
 
   } catch (err) {
     tankList.innerHTML = `<li>Request failed: ${err}</li>`;
