@@ -17,7 +17,11 @@
   </select>
 </label><br><br>
 <label>Search Player: <input type="text" id="searchInput"></label>
-<button onclick="searchPlayers()">Search</button>
+<button onclick="searchPlayers()">Search</button><br><br>
+<label>
+  <input type="checkbox" id="collectorOnly">
+  Show only Collector tanks (bought with credits, not gold/bonds)
+</label>
 
 <h3>Results:</h3>
 <ul id="playerResults"></ul>
@@ -104,8 +108,8 @@ async function getPlayerTanks(appId, accountId, nickname) {
       return;
     }
 
-    // The API rejects requests with too many tank_id values at once,
-    // so we split the full list into chunks and fetch each separately.
+    // No cap here - every tank_id the account owns gets processed,
+    // split into chunks only because the API rejects >100 IDs per call.
     const CHUNK_SIZE = 100;
     const allTankIds = tankStats.map(t => t.tank_id);
     const chunks = [];
@@ -115,7 +119,10 @@ async function getPlayerTanks(appId, accountId, nickname) {
 
     const encyData = {};
     for (const chunk of chunks) {
-      const encyUrl = `${API_BASE}/encyclopedia/vehicles/?application_id=${appId}&tank_id=${chunk.join(",")}&fields=name,tier`;
+      // price_credit / price_gold / is_premium are used below to guess
+      // Collector vs Premium status, since Wargaming's API has no
+      // explicit "is_collector" field.
+      const encyUrl = `${API_BASE}/encyclopedia/vehicles/?application_id=${appId}&tank_id=${chunk.join(",")}&fields=name,tier,is_premium,price_credit,price_gold`;
       const encyResponse = await fetch(encyUrl);
       const chunkData = await encyResponse.json();
 
@@ -127,15 +134,36 @@ async function getPlayerTanks(appId, accountId, nickname) {
       Object.assign(encyData, chunkData.data);
     }
 
+    const collectorOnly = document.getElementById("collectorOnly").checked;
+
     tankList.innerHTML = "";
+    let shown = 0;
     tankStats.forEach(t => {
       const tankInfo = encyData[t.tank_id];
-      const name = tankInfo ? tankInfo.name : `Unknown (ID ${t.tank_id})`;
-      const tier = tankInfo ? tankInfo.tier : "?";
+
+      if (!tankInfo) {
+        if (!collectorOnly) {
+          const li = document.createElement("li");
+          li.textContent = `Special/event vehicle (tank_id ${t.tank_id}) - no public data available`;
+          tankList.appendChild(li);
+          shown++;
+        }
+        return;
+      }
+
+      // Heuristic: Collector tanks are non-tech-tree vehicles bought with
+      // credits only (no gold price). This is inferred, not an official flag.
+      const isCollector = tankInfo.is_premium && tankInfo.price_credit > 0 && !tankInfo.price_gold;
+
+      if (collectorOnly && !isCollector) return;
+
       const li = document.createElement("li");
-      li.textContent = `${name} - Tier ${tier}`;
+      li.textContent = `${tankInfo.name} - Tier ${tankInfo.tier}${isCollector ? " (Collector)" : ""}`;
       tankList.appendChild(li);
+      shown++;
     });
+
+    tankHeader.textContent = `Tanks for ${nickname}: (showing ${shown} of ${tankStats.length} owned)`;
 
   } catch (err) {
     tankList.innerHTML = `<li>Request failed: ${err}</li>`;
